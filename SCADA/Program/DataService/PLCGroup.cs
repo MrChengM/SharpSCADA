@@ -938,6 +938,7 @@ namespace DataService
                 byte[] rcvBytes = _plcReader.ReadBytes(area.Start, (ushort)area.Len);//从PLC读取数据  
                 if (rcvBytes == null)
                 {
+                    k += (area.Len + 1) / 2;
                     continue;
                 }
                 else
@@ -978,6 +979,13 @@ namespace DataService
                             }
                             else
                             {
+                                if (addr.ByteOrder.HasFlag(ByteOrder.BigEndian))
+                                {
+                                    for (int i = 0; i < addr.DataSize / 2; i++)
+                                    {
+                                        prcv[iShort1 + i] = IPAddress.HostToNetworkOrder(prcv[iShort1 + i]);
+                                    }
+                                }
                                 if (addr.DataSize <= 2)
                                 {
                                     if (prcv[iShort1] != cache[iShort]) _changedList.Add(index);

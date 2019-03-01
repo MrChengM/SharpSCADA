@@ -244,7 +244,7 @@ namespace BatchCoreService
                     {
                         foreach (var driver in Drivers)
                         {
-                            driver.OnClose -= this.reader_OnClose;
+                            driver.OnError -= this.reader_OnClose;
                             driver.Dispose();
                         }
                         foreach (var condition in _conditionList)
@@ -371,7 +371,7 @@ namespace BatchCoreService
         {
             foreach (IDriver reader in _drivers.Values)
             {
-                reader.OnClose += new ShutdownRequestEventHandler(reader_OnClose);
+                reader.OnError += new IOErrorEventHandler(reader_OnClose);
                 if (reader.IsClosed)
                 {
                     //if (reader is IFileDriver)
@@ -1164,7 +1164,7 @@ namespace BatchCoreService
             {
                 if (_hda.Count == 0) return;
                 if (DataHelper.Instance.BulkCopy(new HDASqlReader(_hda, this), "Log_HData",
-                      string.Format("DELETE FROM Log_HData WHERE [TIMESTAMP]>'{0}'", _hda[0].TimeStamp.ToString())))
+                      string.Format("DELETE FROM Log_HData WHERE [TIMESTAMP]>'{0}'", _hda[0].TimeStamp.ToString("yyyy/MM/dd HH:mm:ss"))))
                 {
                     _hda.Clear();
                     _hdastart = DateTime.Now;
@@ -1177,7 +1177,7 @@ namespace BatchCoreService
             var tempdata = _hda.ToArray();
             if (tempdata.Length == 0) return true;
             return DataHelper.Instance.BulkCopy(new HDASqlReader(GetData(tempdata, startTime, endTime), this), "Log_HData",
-                     string.Format("DELETE FROM Log_HData WHERE [TIMESTAMP] BETWEEN '{0}' AND '{1}'", startTime, endTime));
+                     string.Format("DELETE FROM Log_HData WHERE [TIMESTAMP] BETWEEN '{0}' AND '{1}'", startTime.ToString("yyyy/MM/dd HH:mm:ss"), endTime.ToString("yyyy/MM/dd HH:mm:ss")));
         }
 
         public void OnUpdate(object stateInfo)
@@ -1192,7 +1192,7 @@ namespace BatchCoreService
                     DateTime start = _hda[0].TimeStamp;
                     //_array.CopyTo(data, 0);
                     if (DataHelper.Instance.BulkCopy(new HDASqlReader(_hda, this), "Log_HData",
-                    string.Format("DELETE FROM Log_HData WHERE [TIMESTAMP]>'{0}'", start.ToString())))
+                    string.Format("DELETE FROM Log_HData WHERE [TIMESTAMP]>'{0}'", start.ToString("yyyy/MM/dd HH:mm:ss"))))
                         _hdastart = DateTime.Now;
                     else ThreadPool.UnsafeQueueUserWorkItem(new WaitCallback(this.SaveCachedData), _hda.ToArray());
                     _hda.Clear();
@@ -1213,7 +1213,7 @@ namespace BatchCoreService
                 if (count >= 5) return;
                 if (DataHelper.Instance.BulkCopy(new HDASqlReader(tempData, this), "Log_HData",
                    string.Format("DELETE FROM Log_HData WHERE [TIMESTAMP] BETWEEN '{0}' AND '{1}'",
-                    startTime, endTime)))
+                    startTime.ToString("yyyy/MM/dd HH:mm:ss"), endTime.ToString("yyyy/MM/dd HH:mm:ss"))))
                 {
                     stateInfo = null;
                     _hdastart = DateTime.Now;
@@ -1362,87 +1362,91 @@ namespace BatchCoreService
             for (int i = 0; i < data.Count; i++)
             {
                 short id = data[i].ID;
-                byte[] dt = BitConverter.GetBytes(id);
-                sendBuffer[j++] = dt[0];
-                sendBuffer[j++] = dt[1];
-                switch (_list[GetItemProperties(id)].DataType)
+                var propid = GetItemProperties(id);
+                if (propid >= 0 && propid < _list.Count)
                 {
-                    case DataType.BOOL:
-                        sendBuffer[j++] = 1;
-                        sendBuffer[j++] = data[i].Value.Boolean ? (byte)1 : (byte)0;
-                        break;
-                    case DataType.BYTE:
-                        sendBuffer[j++] = 1;
-                        sendBuffer[j++] = data[i].Value.Byte;
-                        break;
-                    case DataType.WORD:
-                        {
-                            sendBuffer[j++] = 2;
-                            byte[] bt = BitConverter.GetBytes(data[i].Value.Word);
-                            sendBuffer[j++] = bt[0];
-                            sendBuffer[j++] = bt[1];
-                        }
-                        break;
-                    case DataType.SHORT:
-                        {
-                            sendBuffer[j++] = 2;
-                            byte[] bt = BitConverter.GetBytes(data[i].Value.Int16);
-                            sendBuffer[j++] = bt[0];
-                            sendBuffer[j++] = bt[1];
-                        }
-                        break;
-                    case DataType.DWORD:
-                        {
-                            sendBuffer[j++] = 4;
-                            byte[] bt = BitConverter.GetBytes(data[i].Value.DWord);
-                            sendBuffer[j++] = bt[0];
-                            sendBuffer[j++] = bt[1];
-                            sendBuffer[j++] = bt[2];
-                            sendBuffer[j++] = bt[3];
-                        }
-                        break;
-                    case DataType.INT:
-                        {
-                            sendBuffer[j++] = 4;
-                            byte[] bt = BitConverter.GetBytes(data[i].Value.Int32);
-                            sendBuffer[j++] = bt[0];
-                            sendBuffer[j++] = bt[1];
-                            sendBuffer[j++] = bt[2];
-                            sendBuffer[j++] = bt[3];
-                        }
-                        break;
-                    case DataType.FLOAT:
-                        {
-                            sendBuffer[j++] = 4;
-                            byte[] bt = BitConverter.GetBytes(data[i].Value.Single);
-                            sendBuffer[j++] = bt[0];
-                            sendBuffer[j++] = bt[1];
-                            sendBuffer[j++] = bt[2];
-                            sendBuffer[j++] = bt[3];
-                        }
-                        break;
-                    case DataType.STR:
-                        {
-                            byte[] bt = Encoding.ASCII.GetBytes(this[data[i].ID].ToString());
-                            sendBuffer[j++] = (byte)bt.Length;
-                            for (int k = 0; k < bt.Length; k++)
+                    byte[] dt = BitConverter.GetBytes(id);
+                    sendBuffer[j++] = dt[0];
+                    sendBuffer[j++] = dt[1];
+                    switch (_list[propid].DataType)
+                    {
+                        case DataType.BOOL:
+                            sendBuffer[j++] = 1;
+                            sendBuffer[j++] = data[i].Value.Boolean ? (byte)1 : (byte)0;
+                            break;
+                        case DataType.BYTE:
+                            sendBuffer[j++] = 1;
+                            sendBuffer[j++] = data[i].Value.Byte;
+                            break;
+                        case DataType.WORD:
                             {
-                                sendBuffer[j++] = bt[k];
+                                sendBuffer[j++] = 2;
+                                byte[] bt = BitConverter.GetBytes(data[i].Value.Word);
+                                sendBuffer[j++] = bt[0];
+                                sendBuffer[j++] = bt[1];
                             }
-                        }
-                        break;
-                    default:
-                        break;
+                            break;
+                        case DataType.SHORT:
+                            {
+                                sendBuffer[j++] = 2;
+                                byte[] bt = BitConverter.GetBytes(data[i].Value.Int16);
+                                sendBuffer[j++] = bt[0];
+                                sendBuffer[j++] = bt[1];
+                            }
+                            break;
+                        case DataType.DWORD:
+                            {
+                                sendBuffer[j++] = 4;
+                                byte[] bt = BitConverter.GetBytes(data[i].Value.DWord);
+                                sendBuffer[j++] = bt[0];
+                                sendBuffer[j++] = bt[1];
+                                sendBuffer[j++] = bt[2];
+                                sendBuffer[j++] = bt[3];
+                            }
+                            break;
+                        case DataType.INT:
+                            {
+                                sendBuffer[j++] = 4;
+                                byte[] bt = BitConverter.GetBytes(data[i].Value.Int32);
+                                sendBuffer[j++] = bt[0];
+                                sendBuffer[j++] = bt[1];
+                                sendBuffer[j++] = bt[2];
+                                sendBuffer[j++] = bt[3];
+                            }
+                            break;
+                        case DataType.FLOAT:
+                            {
+                                sendBuffer[j++] = 4;
+                                byte[] bt = BitConverter.GetBytes(data[i].Value.Single);
+                                sendBuffer[j++] = bt[0];
+                                sendBuffer[j++] = bt[1];
+                                sendBuffer[j++] = bt[2];
+                                sendBuffer[j++] = bt[3];
+                            }
+                            break;
+                        case DataType.STR:
+                            {
+                                byte[] bt = Encoding.ASCII.GetBytes(this[data[i].ID].ToString());
+                                sendBuffer[j++] = (byte)bt.Length;
+                                for (int k = 0; k < bt.Length; k++)
+                                {
+                                    sendBuffer[j++] = bt[k];
+                                }
+                            }
+                            break;
+                        default:
+                            break;
+                    }
+                    Array.Copy(BitConverter.GetBytes((data[i].TimeStamp == DateTime.MinValue ? DateTime.Now : data[i].TimeStamp).ToFileTime()), 0, sendBuffer, j, 8);
+                    j += 8;
                 }
-                Array.Copy(BitConverter.GetBytes((data[i].TimeStamp == DateTime.MinValue ? DateTime.Now : data[i].TimeStamp).ToFileTime()), 0, sendBuffer, j, 8);
-                j += 8;
             }
             byte[] dt1 = BitConverter.GetBytes(j);
             sendBuffer[3] = dt1[0];
             sendBuffer[4] = dt1[1];
             SocketError err;
             //bytes.CopyTo(bytes2, 0);
-            List<Socket> sockets = new List<Socket>(_socketThreadList.Count);
+            List<Socket> sockets = new List<Socket>();
             foreach (var socket in _socketThreadList)
             {
                 if (!socket.Key.Equals(tempdata.Address))
@@ -1522,9 +1526,9 @@ namespace BatchCoreService
             }
         }
 
-        void reader_OnClose(object sender, ShutdownRequestEventArgs e)
+        void reader_OnClose(object sender, IOErrorEventArgs e)
         {
-            Log.WriteEntry(e.shutdownReason, EventLogEntryType.Error);
+            Log.WriteEntry(e.Reason, EventLogEntryType.Error);
             //AddErrorLog(new Exception(e.shutdownReason));
         }
 
